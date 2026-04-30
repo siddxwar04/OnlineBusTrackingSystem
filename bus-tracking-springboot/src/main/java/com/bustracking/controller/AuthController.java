@@ -17,8 +17,11 @@ import java.util.Optional;
  * GET  /data/logout — invalidates the session
  *
  * Login logic:
- *   - Tries password1 field first (username + password1)
- *   - Falls back to password2 field (username + password2)
+ *   - Checks password1 field against the DB (username + password1)
+ *   - If that fails, checks password2 field (username + password2)
+ *   - Both passwords are stored as separate rows in the users table
+ *     with the same username, so a single findByUsernameAndPassword
+ *     call handles either case cleanly.
  *   - Returns { success, role, username } on success
  *   - Returns 401 on failure
  */
@@ -41,32 +44,26 @@ public class AuthController {
             @RequestParam(required = false) String password2,
             HttpSession session) {
 
-        // Try password1 first, then password2
-        String passwordAttempt = (password1 != null && !password1.isBlank()) ? password1 : password2;
+        // Require at least one password field
+        boolean hasP1 = password1 != null && !password1.isBlank();
+        boolean hasP2 = password2 != null && !password2.isBlank();
 
-        if (passwordAttempt == null || passwordAttempt.isBlank()) {
+        if (!hasP1 && !hasP2) {
             return ResponseEntity.status(401).body(Map.of(
                 "success", false,
                 "message", "Password is required"
             ));
         }
 
-        // Query MySQL users table
-        Optional<User> userOpt = userRepository.findByUsernameAndPassword(username, passwordAttempt);
+        // Try password1 first, then password2.
+        // Each is stored as a separate row in the users table under the same username,
+        // so findByUsernameAndPassword handles both without any extra logic.
+        Optional<User> userOpt = hasP1
+            ? userRepository.findByUsernameAndPassword(username, password1)
+            : Optional.empty();
 
-        // Also try by username only (to support both password fields with same username)
-        if (userOpt.isEmpty()) {
-            Optional<User> byName = userRepository.findByUsername(username);
-            if (byName.isPresent()) {
-                User u = byName.get();
-                // Check if either password matches this user's stored password
-                // For the two-password system we store two separate rows per role
-                // so try the second password as well
-                String altPassword = (password1 != null && password1.equals(passwordAttempt)) ? password2 : password1;
-                if (altPassword != null && !altPassword.isBlank()) {
-                    userOpt = userRepository.findByUsernameAndPassword(username, altPassword);
-                }
-            }
+        if (userOpt.isEmpty() && hasP2) {
+            userOpt = userRepository.findByUsernameAndPassword(username, password2);
         }
 
         if (userOpt.isPresent()) {

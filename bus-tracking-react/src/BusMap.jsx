@@ -5,6 +5,12 @@ import { useEffect, useRef } from "react";
 
 const CHENNAI = [13.0827, 80.2707]; // default center
 
+function tileUrl(darkMode) {
+  return darkMode
+    ? "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
+    : "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
+}
+
 function easeInOut(t) {
   return t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t;
 }
@@ -19,7 +25,7 @@ export default function BusMap({ latitude, longitude, busId, darkMode, speed }) 
   const animFrame    = useRef(null);
   const initialized  = useRef(false);
 
-  // ── Init Leaflet once ───────────────────────────────────────────────────────
+  // -- Init Leaflet once -------------------------------------------------------
   useEffect(() => {
     if (!containerRef.current || initialized.current) return;
     if (typeof window.L === "undefined") return; // wait for CDN
@@ -33,12 +39,8 @@ export default function BusMap({ latitude, longitude, busId, darkMode, speed }) 
       attributionControl: false,
     });
 
-    // Tile layer
-    const tileUrl = darkMode
-      ? "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
-      : "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
-
-    L.tileLayer(tileUrl, { maxZoom: 19 }).addTo(map);
+    // Tile layer -- darkMode value at mount time; swaps handled by darkMode effect below
+    L.tileLayer(tileUrl(darkMode), { maxZoom: 19 }).addTo(map);
 
     // Attribution (small)
     L.control.attribution({ prefix: false })
@@ -47,15 +49,7 @@ export default function BusMap({ latitude, longitude, busId, darkMode, speed }) 
 
     // Bus icon (emoji in a styled div)
     const busIcon = L.divIcon({
-      html: `
-        <div style="
-          font-size:30px;
-          line-height:1;
-          filter: drop-shadow(0 3px 6px rgba(0,0,0,0.6));
-          transition: transform 0.1s;
-          transform-origin: center;
-        ">🚌</div>
-      `,
+      html: '<div style="font-size:30px;line-height:1;filter:drop-shadow(0 3px 6px rgba(0,0,0,0.6));transition:transform 0.1s;transform-origin:center;">&#x1F68C;</div>',
       className: "",
       iconSize:   [34, 34],
       iconAnchor: [17, 17],
@@ -63,7 +57,7 @@ export default function BusMap({ latitude, longitude, busId, darkMode, speed }) 
 
     // Marker at default center
     const marker = L.marker(CHENNAI, { icon: busIcon, zIndexOffset: 1000 }).addTo(map);
-    marker.bindPopup(`<b>${busId}</b><br>Awaiting GPS…`, { closeButton: false });
+    marker.bindPopup("<b>" + busId + "</b><br>Awaiting GPS...", { closeButton: false });
 
     // Trail polyline
     const trail = L.polyline([], {
@@ -87,7 +81,7 @@ export default function BusMap({ latitude, longitude, busId, darkMode, speed }) 
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Animate to new GPS position ─────────────────────────────────────────────
+  // -- Animate to new GPS position ---------------------------------------------
   useEffect(() => {
     const L = window.L;
     if (!L || !markerRef.current || !mapRef.current) return;
@@ -102,23 +96,21 @@ export default function BusMap({ latitude, longitude, busId, darkMode, speed }) 
 
     // Update popup
     marker.setPopupContent(
-      `<b style="font-family:monospace">${busId}</b><br>
-       🌡 ${latitude}° &nbsp; | &nbsp; 📍 ${longitude}°<br>
-       🏎 Speed: ${speed || "0 km/h"}`
+      "<b style='font-family:monospace'>" + busId + "</b><br>" +
+      "Lat: " + latitude + " | Lng: " + longitude + "<br>" +
+      "Speed: " + (speed || "0 km/h")
     );
 
     const prev = prevPos.current;
     if (prev) {
-      // Smooth animation from prev → new position
       cancelAnimationFrame(animFrame.current);
       const fromLat = prev[0], fromLng = prev[1];
-      const duration = 4500; // 4.5 s so it finishes just before next 5 s poll
+      const duration = 4500; // 4.5s so it finishes just before next 5s poll
       const startTime = performance.now();
 
-      // Add trail point
       trailPoints.current.push([lat, lng]);
-      if (trailPoints.current.length > 40) trailPoints.current.shift(); // keep last 40
-      trail?.setLatLngs(trailPoints.current);
+      if (trailPoints.current.length > 40) trailPoints.current.shift();
+      trail && trail.setLatLngs(trailPoints.current);
 
       const step = (now) => {
         const elapsed = now - startTime;
@@ -128,55 +120,47 @@ export default function BusMap({ latitude, longitude, busId, darkMode, speed }) 
         const curLng  = fromLng + (lng - fromLng) * ease;
         marker.setLatLng([curLat, curLng]);
 
-        // Rotate bus icon based on direction
         const dLat = lat - fromLat;
         const dLng = lng - fromLng;
         if (Math.abs(dLat) > 0.00001 || Math.abs(dLng) > 0.00001) {
-          const angle  = Math.atan2(dLng, dLat) * (180 / Math.PI);
-          const el     = marker.getElement();
-          if (el) el.querySelector("div").style.transform = `rotate(${angle}deg)`;
+          const angle = Math.atan2(dLng, dLat) * (180 / Math.PI);
+          const el    = marker.getElement();
+          if (el) el.querySelector("div").style.transform = "rotate(" + angle + "deg)";
         }
 
         if (t < 1) {
           animFrame.current = requestAnimationFrame(step);
         } else {
-          // Smoothly pan map to follow
           map.panTo([lat, lng], { animate: true, duration: 0.8 });
         }
       };
 
       animFrame.current = requestAnimationFrame(step);
     } else {
-      // First fix — jump directly
       marker.setLatLng([lat, lng]);
       map.setView([lat, lng], 15, { animate: true });
       trailPoints.current.push([lat, lng]);
-      trail?.setLatLngs(trailPoints.current);
+      trail && trail.setLatLngs(trailPoints.current);
     }
 
     prevPos.current = [lat, lng];
   }, [latitude, longitude, busId, speed]);
 
-  // ── Tile swap on dark/light toggle ─────────────────────────────────────────
+  // -- Tile swap on dark/light toggle ------------------------------------------
   useEffect(() => {
     const L = window.L;
     if (!L || !mapRef.current) return;
-    mapRef.current.eachLayer(layer => {
+    mapRef.current.eachLayer(function(layer) {
       if (layer._url) mapRef.current.removeLayer(layer);
     });
-    const url = darkMode
-      ? "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
-      : "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
-    L.tileLayer(url, { maxZoom: 19 }).addTo(mapRef.current);
-    // Restore trail on top
-    trailRef.current?.addTo(mapRef.current);
-    markerRef.current?.addTo(mapRef.current);
+    L.tileLayer(tileUrl(darkMode), { maxZoom: 19 }).addTo(mapRef.current);
+    trailRef.current && trailRef.current.addTo(mapRef.current);
+    markerRef.current && markerRef.current.addTo(mapRef.current);
   }, [darkMode]);
 
   return (
     <div style={{ position: "relative", width: "100%", height: "100%" }}>
       <div ref={containerRef} style={{ width: "100%", height: "100%", minHeight: "380px", borderRadius: "6px" }} />
-      {/* Corner brackets */}
       {["TL","TR","BL","BR"].map(c => (
         <div key={c} style={{
           position: "absolute", pointerEvents: "none", zIndex: 1000,
@@ -191,7 +175,6 @@ export default function BusMap({ latitude, longitude, busId, darkMode, speed }) 
           borderRight:  c.endsWith("R")   ? "2px solid #00c8ff" : "none",
         }}/>
       ))}
-      {/* Live badge */}
       <div style={{
         position: "absolute", top: "12px", left: "12px", zIndex: 1000,
         background: "rgba(0,0,0,0.75)", border: "1px solid rgba(0,200,255,0.4)",
@@ -203,7 +186,7 @@ export default function BusMap({ latitude, longitude, busId, darkMode, speed }) 
           animation: "pulse 1.5s infinite" }} />
         <span style={{ color: "#00c8ff", fontSize: "10px", letterSpacing: "2px",
           fontFamily: "'Courier New',monospace" }}>
-          {busId} — LIVE GPS
+          {busId} - LIVE GPS
         </span>
       </div>
     </div>

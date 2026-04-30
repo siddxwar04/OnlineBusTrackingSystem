@@ -1,5 +1,6 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import BusMap from "./BusMap";
+import qrImage from "./qr-payment.jpeg";
 
 function Marquee({ text, color }) {
   return (
@@ -208,7 +209,7 @@ export default function PublicBoard({ darkMode, onBack }) {
               <div style={{ color:"rgba(255,255,255,0.3)", fontSize:"11px", letterSpacing:"3px" }}>📱 SCAN &amp; PAY UPI</div>
               <div style={{ background:"white", padding:"10px", borderRadius:"6px",
                 boxShadow:"0 0 24px rgba(0,200,255,0.2)" }}>
-                <img src="/qr-payment.jpeg" alt="UPI QR"
+                <img src={qrImage} alt="UPI QR"
                   style={{ width:"130px", height:"130px", display:"block", objectFit:"contain" }}
                   onError={e=>e.target.style.display="none"}/>
               </div>
